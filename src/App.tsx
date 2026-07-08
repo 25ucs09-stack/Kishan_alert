@@ -80,7 +80,26 @@ export default function App() {
   const [currentLang, setCurrentLang] = useState<LanguageCode>('en');
 
   // Authentication state
-  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
+    try {
+      const stored = localStorage.getItem('farmer_profile');
+      if (stored) {
+        return JSON.parse(stored);
+      }
+    } catch (e) {
+      console.error('Failed to parse profile:', e);
+    }
+    return {
+      id: 'farmer_default',
+      name: 'Rajesh Kumar',
+      mobile: '9876543210',
+      state: 'Tamil Nadu',
+      district: 'Coimbatore',
+      preferredLanguage: 'en',
+      primaryCrop: 'Paddy',
+      farmSize: '2.5'
+    };
+  });
 
   // Global chatbot history
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([
@@ -115,18 +134,6 @@ export default function App() {
     }
   }, [currentUser]);
 
-  // Read auth token from localStorage on boot
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem('farmer_profile');
-      if (stored) {
-        setCurrentUser(JSON.parse(stored));
-      }
-    } catch (e) {
-      console.error('Failed to parse profile:', e);
-    }
-  }, []);
-
   const handleLogin = (user: UserProfile) => {
     setCurrentUser(user);
     localStorage.setItem('farmer_profile', JSON.stringify(user));
@@ -137,8 +144,19 @@ export default function App() {
   };
 
   const handleLogout = () => {
-    setCurrentUser(null);
-    localStorage.removeItem('farmer_profile');
+    // Reset to default profile instead of null so the app stays logged-in/working without credentials
+    const defaultProfile: UserProfile = {
+      id: 'farmer_default',
+      name: 'Rajesh Kumar',
+      mobile: '9876543210',
+      state: 'Tamil Nadu',
+      district: 'Coimbatore',
+      preferredLanguage: 'en',
+      primaryCrop: 'Paddy',
+      farmSize: '2.5'
+    };
+    setCurrentUser(defaultProfile);
+    localStorage.setItem('farmer_profile', JSON.stringify(defaultProfile));
     navigateTo('home');
   };
 
@@ -198,33 +216,6 @@ export default function App() {
 
   // Render content based on activeTab
   const renderContent = () => {
-    // 1. Check if accessing a secure page and not logged in
-    const secureTabs = ['dashboard', 'chat', 'diagnosis', 'crop-rec', 'soil', 'sms', 'fertilizer', 'schemes'];
-    if (secureTabs.includes(activeTab) && !currentUser) {
-      return (
-        <div className="max-w-md mx-auto py-12 px-6">
-          <div className="bg-white border border-slate-100 rounded-3xl p-6 shadow-xl text-center space-y-6">
-            <div className="w-16 h-16 bg-rose-50 border border-rose-100 text-rose-500 rounded-full flex items-center justify-center mx-auto shadow-sm">
-              <Lock size={32} />
-            </div>
-            <div className="space-y-2">
-              <h3 className="text-xl font-extrabold text-slate-800">Secure Farmer Login Required</h3>
-              <p className="text-sm text-slate-500 font-medium leading-relaxed">
-                {t.unauthorized}
-              </p>
-            </div>
-            <Auth 
-              currentUser={currentUser} 
-              onLogin={handleLogin} 
-              onLogout={handleLogout} 
-              onUpdateProfile={handleUpdateProfile}
-              currentLang={currentLang}
-            />
-          </div>
-        </div>
-      );
-    }
-
     switch (activeTab) {
       case 'dashboard':
         return <Dashboard currentLang={currentLang} currentUser={currentUser} onNavigate={(tab) => navigateTo(tab)} />;
@@ -684,18 +675,7 @@ export default function App() {
             ))}
           </nav>
 
-          {/* User Signin / Profile button */}
-          <button
-            id="nav-profile-btn"
-            onClick={() => navigateTo('profile')}
-            className={`p-2 rounded-xl border border-slate-200 transition flex items-center gap-1.5 cursor-pointer hover:bg-brand-bg text-brand-primary`}
-            title={currentUser ? 'Farmer Profile' : 'Farmer Login'}
-          >
-            <UserCircle size={18} className="text-brand-primary" />
-            <span className="text-xs font-bold text-slate-700 hidden md:inline">
-              {currentUser ? currentUser.name : t.login}
-            </span>
-          </button>
+
 
           {/* Sidebar Toggle */}
           <button
