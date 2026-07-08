@@ -7,7 +7,6 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import dotenv from 'dotenv';
-import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 
 // Load environment variables
@@ -21,35 +20,84 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // File-based simple database for farmer credentials and profile data
-const DB_FILE = path.join(process.cwd(), 'src', 'db_store.json');
+// Use /tmp in production to avoid EACCES permission errors on read-only container filesystems
+const DEFAULT_DB_FILE = path.join(process.cwd(), 'src', 'db_store.json');
+const DB_FILE = process.env.NODE_ENV === 'production'
+  ? path.join('/tmp', 'db_store.json')
+  : DEFAULT_DB_FILE;
+
+// Memory fallback to guarantee service continuity even under zero-write access environments
+let memoryDB: { users: any[]; chatHistories: Record<string, any>; smsSubscribers: any[] } = {
+  users: [],
+  chatHistories: {},
+  smsSubscribers: []
+};
+let useMemoryDB = false;
 
 // Ensure database file exists
 function initDB() {
-  if (!fs.existsSync(path.dirname(DB_FILE))) {
-    fs.mkdirSync(path.dirname(DB_FILE), { recursive: true });
-  }
-  if (!fs.existsSync(DB_FILE)) {
-    fs.writeFileSync(DB_FILE, JSON.stringify({ users: [], chatHistories: {}, smsSubscribers: [] }, null, 2));
+  try {
+    const dbDir = path.dirname(DB_FILE);
+    if (!fs.existsSync(dbDir)) {
+      fs.mkdirSync(dbDir, { recursive: true });
+    }
+
+    // In production, migrate initial database seeds from build directory if needed
+    if (process.env.NODE_ENV === 'production' && !fs.existsSync(DB_FILE)) {
+      if (fs.existsSync(DEFAULT_DB_FILE)) {
+        try {
+          fs.copyFileSync(DEFAULT_DB_FILE, DB_FILE);
+          console.log('[Kishan Alert] Successfully copied seed db_store.json to /tmp/db_store.json');
+        } catch (copyErr) {
+          console.error('[Kishan Alert] Failed to copy seed db_store.json, creating empty database:', copyErr);
+          fs.writeFileSync(DB_FILE, JSON.stringify(memoryDB, null, 2));
+        }
+      } else {
+        fs.writeFileSync(DB_FILE, JSON.stringify(memoryDB, null, 2));
+      }
+    } else if (!fs.existsSync(DB_FILE)) {
+      fs.writeFileSync(DB_FILE, JSON.stringify(memoryDB, null, 2));
+    }
+  } catch (err) {
+    console.error('[Kishan Alert] Error initializing database file, falling back to in-memory mode:', err);
+    useMemoryDB = true;
   }
 }
 
+// Perform initial setup safely
 initDB();
 
 function readDB() {
+  if (useMemoryDB) {
+    return memoryDB;
+  }
   try {
     initDB();
+    if (!fs.existsSync(DB_FILE)) {
+      return memoryDB;
+    }
     const data = fs.readFileSync(DB_FILE, 'utf-8');
-    return JSON.parse(data);
+    const parsed = JSON.parse(data);
+    // Keep memory DB in sync
+    memoryDB = parsed;
+    return parsed;
   } catch (e) {
-    return { users: [], chatHistories: {}, smsSubscribers: [] };
+    console.error('[Kishan Alert] Failed to read database file, returning in-memory:', e);
+    return memoryDB;
   }
 }
 
 function writeDB(data: any) {
+  // Always update in-memory state
+  memoryDB = data;
+  if (useMemoryDB) {
+    return;
+  }
   try {
     fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
   } catch (e) {
-    console.error('Failed to write database:', e);
+    console.error('[Kishan Alert] Failed to write database file, switching permanently to in-memory fallback:', e);
+    useMemoryDB = true;
   }
 }
 
@@ -1375,6 +1423,7 @@ Return only the short 140-character SMS text in ${langName} script.`;
 
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
