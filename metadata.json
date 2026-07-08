@@ -1,0 +1,6 @@
+{
+  "name": "Kishan Alert",
+  "description": "AI-powered agricultural assistant providing crop advisory, plant disease diagnosis, soil health recommendations, fertilizer guidance, and voice assistant in regional Indian languages.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
